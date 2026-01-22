@@ -136,7 +136,8 @@ rule_chain = {
                     "clientAttributeNames": ["targetTemp", "upperLimit", "lowerLimit", "useLowerLimit", "cookingDuration", "startMode", "isCooking"],
                     "serverAttributeNames": ["cookingState", "cookingStartTime"],
                     "sharedAttributeNames": ["targetTemp", "upperLimit", "lowerLimit", "useLowerLimit", "cookingDuration", "startMode", "isCooking"]
-                }
+                },
+                "additionalInfo": {"layoutX": 250, "layoutY": 150}
             },
             {
                 "id": {"id": id_script, "entityType": "RULE_NODE"},
@@ -144,7 +145,8 @@ rule_chain = {
                 "name": "HACCP Logic",
                 "configuration": {
                     "jsScript": script_js
-                }
+                },
+                "additionalInfo": {"layoutX": 500, "layoutY": 150}
             },
             {
                 "id": {"id": id_switch, "entityType": "RULE_NODE"},
@@ -158,7 +160,8 @@ rule_chain = {
                         if (metadata.should_save_history === 'true') routes.push('HISTORY');
                         return routes;
                     """
-                }
+                },
+                "additionalInfo": {"layoutX": 750, "layoutY": 150}
             },
             {
                 "id": {"id": id_save_attr, "entityType": "RULE_NODE"},
@@ -166,7 +169,8 @@ rule_chain = {
                 "name": "Update State",
                 "configuration": {
                     "scope": "SERVER_SCOPE"
-                }
+                },
+                "additionalInfo": {"layoutX": 1000, "layoutY": 50}
             },
             {
                 "id": {"id": id_create_alarm, "entityType": "RULE_NODE"},
@@ -177,7 +181,8 @@ rule_chain = {
                     "severity": "CRITICAL",
                     "propagate": False,
                     "alarmDetailsBuildJs": "var details = {}; details.temp = msg.temperature; return details;"
-                }
+                },
+                "additionalInfo": {"layoutX": 1000, "layoutY": 150}
             },
             {
                 "id": {"id": id_save_telemetry, "entityType": "RULE_NODE"},
@@ -185,7 +190,8 @@ rule_chain = {
                 "name": "Save History",
                 "configuration": {
                     "defaultTTL": 0
-                }
+                },
+                "additionalInfo": {"layoutX": 1000, "layoutY": 250}
             }
         ],
         "connections": [
