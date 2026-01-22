@@ -10,6 +10,7 @@ id_enrich = generate_uuid()
 id_script = generate_uuid()
 id_switch = generate_uuid()
 id_save_attr = generate_uuid()
+id_save_shared = generate_uuid()
 id_create_alarm = generate_uuid()
 id_save_telemetry = generate_uuid()
 id_log = generate_uuid()
@@ -24,7 +25,7 @@ var newMetadata = metadata;
 
 // Helper to get attribute
 function getAttr(name, defaultVal) {
-    return metadata['cs_' + name] || metadata['ss_' + name] || defaultVal;
+    return metadata['cs_' + name] || metadata['ss_' + name] || metadata['shared_' + name] || defaultVal;
 }
 
 var mode = getAttr('startMode', 'manual');
@@ -39,6 +40,7 @@ var state = metadata.ss_cookingState || 'IDLE';
 var startTime = parseInt(metadata.ss_cookingStartTime || 0);
 
 newMetadata.should_save_attributes = 'false';
+newMetadata.should_save_shared_attributes = 'false'; // Sync Shared Scope
 newMetadata.should_create_alarm = 'false';
 newMetadata.should_save_history = 'false';
 
@@ -61,6 +63,9 @@ if (msgType === 'POST_TELEMETRY' && msg.temperature) {
             newMetadata.ss_cookingState = 'COOKING';
             newMetadata.ss_cookingStartTime = Date.now();
             newMetadata.should_save_attributes = 'true';
+            // Save to DB via Msg Payload
+            newMsg.cookingState = 'COOKING';
+            newMsg.cookingStartTime = newMetadata.ss_cookingStartTime;
         }
     }
 
@@ -71,6 +76,7 @@ if (msgType === 'POST_TELEMETRY' && msg.temperature) {
              // User stopped it manually
              newMetadata.ss_cookingState = 'IDLE';
              newMetadata.should_save_attributes = 'true';
+             newMsg.cookingState = 'IDLE';
         } else {
             var elapsed = Date.now() - startTime;
 
@@ -78,25 +84,34 @@ if (msgType === 'POST_TELEMETRY' && msg.temperature) {
             if (temp > upper) {
                 newMetadata.should_create_alarm = 'true';
                 newMetadata.alarm_type = 'HACCP_HIGH_TEMP';
+                newMsg.activeAlarms = 'HACCP_HIGH_TEMP';
+                newMetadata.should_save_attributes = 'true'; // Save active alarm status
             } else if (useLower && temp < lower) {
                 newMetadata.should_create_alarm = 'true';
                 newMetadata.alarm_type = 'HACCP_LOW_TEMP';
+                newMsg.activeAlarms = 'HACCP_LOW_TEMP';
+                newMetadata.should_save_attributes = 'true';
             }
 
             // 2. Check Completion
             if (elapsed >= duration) {
                 newMetadata.ss_cookingState = 'IDLE';
-                newMetadata.ss_isCooking = 'false'; // Reset client flag if possible (server side override)
                 newMetadata.should_save_attributes = 'true';
+                newMetadata.should_save_shared_attributes = 'true'; // Reset Shared Attr
                 newMetadata.should_save_history = 'true';
 
-                newMsg.cooking_history = {
+                newMsg.cookingState = 'IDLE';
+                newMsg.isCooking = false; // This will go to both Server & Shared
+                newMsg.activeAlarms = ''; // Clear alarms
+
+                // Must stringify to store as a single value string in Timeseries
+                newMsg.cooking_history = JSON.stringify({
                     start: startTime,
                     end: Date.now(),
                     duration: elapsed,
                     final_temp: temp,
                     result: 'COMPLETED'
-                };
+                });
             }
         }
     }
@@ -108,9 +123,12 @@ if (msgType === 'POST_TELEMETRY' && msg.temperature) {
              newMetadata.ss_cookingState = 'COOKING';
              newMetadata.ss_cookingStartTime = Date.now();
              newMetadata.should_save_attributes = 'true';
+             newMsg.cookingState = 'COOKING';
+             newMsg.cookingStartTime = newMetadata.ss_cookingStartTime;
          } else if (msg.isCooking === false && state === 'COOKING') {
              newMetadata.ss_cookingState = 'IDLE';
              newMetadata.should_save_attributes = 'true';
+             newMsg.cookingState = 'IDLE';
          }
     }
 }
@@ -156,6 +174,7 @@ rule_chain = {
                     "jsScript": """
                         var routes = [];
                         if (metadata.should_save_attributes === 'true') routes.push('SAVE_ATTR');
+                        if (metadata.should_save_shared_attributes === 'true') routes.push('SAVE_SHARED');
                         if (metadata.should_create_alarm === 'true') routes.push('ALARM');
                         if (metadata.should_save_history === 'true') routes.push('HISTORY');
                         return routes;
@@ -166,11 +185,20 @@ rule_chain = {
             {
                 "id": {"id": id_save_attr, "entityType": "RULE_NODE"},
                 "type": "org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode",
-                "name": "Update State",
+                "name": "Update Server State",
                 "configuration": {
                     "scope": "SERVER_SCOPE"
                 },
                 "additionalInfo": {"layoutX": 1000, "layoutY": 50}
+            },
+            {
+                "id": {"id": id_save_shared, "entityType": "RULE_NODE"},
+                "type": "org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode",
+                "name": "Update Shared State",
+                "configuration": {
+                    "scope": "SHARED_SCOPE"
+                },
+                "additionalInfo": {"layoutX": 1000, "layoutY": 100}
             },
             {
                 "id": {"id": id_create_alarm, "entityType": "RULE_NODE"},
@@ -198,8 +226,9 @@ rule_chain = {
             {"fromIndex": 0, "toIndex": 1, "type": "Success"}, # Enrich -> Script
             {"fromIndex": 1, "toIndex": 2, "type": "Success"}, # Script -> Switch
             {"fromIndex": 2, "toIndex": 3, "type": "SAVE_ATTR"}, # Switch -> Save Attr
-            {"fromIndex": 2, "toIndex": 4, "type": "ALARM"}, # Switch -> Alarm
-            {"fromIndex": 2, "toIndex": 5, "type": "HISTORY"} # Switch -> Save Telemetry
+            {"fromIndex": 2, "toIndex": 4, "type": "SAVE_SHARED"}, # Switch -> Save Shared
+            {"fromIndex": 2, "toIndex": 5, "type": "ALARM"}, # Switch -> Alarm
+            {"fromIndex": 2, "toIndex": 6, "type": "HISTORY"} # Switch -> Save Telemetry
         ]
     }
 }

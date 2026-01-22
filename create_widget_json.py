@@ -26,9 +26,9 @@ html_code = """
     </div>
 
     <div class="tabs">
-        <button class="tab-btn active" onclick="openTab('monitor')">Monitor</button>
-        <button class="tab-btn" onclick="openTab('settings')">Settings</button>
-        <button class="tab-btn" onclick="openTab('history')">History</button>
+        <button class="tab-btn active" data-tab="monitor">Monitor</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
+        <button class="tab-btn" data-tab="history">History</button>
     </div>
 
     <div id="tab-monitor" class="tab-content active">
@@ -133,16 +133,25 @@ self.onInit = function() {
     var isCooking = false;
 
     // Helper: Open Tabs
-    window.openTab = function(tabName) {
+    $('.tab-btn', ctx.$container).on('click', function() {
+        var tabName = $(this).data('tab');
         $('.tab-content', ctx.$container).removeClass('active');
         $('.tab-btn', ctx.$container).removeClass('active');
+        $(this).addClass('active');
         $('#tab-' + tabName, ctx.$container).addClass('active');
-        // Find button index to highlight... simplistic approach
+    });
+
+    // Check if subscription exists
+    if (!ctx.defaultSubscription || !ctx.defaultSubscription.targetDeviceId) {
+        elStatus.text("No Device");
+        return;
     }
+
+    var targetDeviceId = ctx.defaultSubscription.targetDeviceId;
 
     // 1. Subscribe to Telemetry (Temp)
     var telemetrySubscription = {
-        entityId: ctx.defaultSubscription.targetDeviceId,
+        entityId: targetDeviceId,
         keys: ['temperature'],
         type: 'timeseries'
     };
@@ -170,12 +179,25 @@ self.onInit = function() {
 
     // 2. Load & Subscribe Attributes (Settings & State)
     var attributes = ['targetTemp', 'upperLimit', 'lowerLimit', 'useLowerLimit', 'cookingDuration', 'startMode', 'isCooking', 'cookingState'];
-    ctx.attributeService.getEntityAttributes(ctx.defaultSubscription.targetDeviceId, 'SHARED_SCOPE', attributes).subscribe(
-        (data) => { updateSettingsUI(data); }
-    );
 
-    ctx.attributeService.getEntityAttributes(ctx.defaultSubscription.targetDeviceId, 'SERVER_SCOPE', ['cookingState']).subscribe(
-        (data) => { updateStateUI(data); }
+    var attrSubscription = {
+        entityId: targetDeviceId,
+        keys: attributes,
+        type: 'attributes'
+    };
+
+    ctx.subscriptionApi.createSubscription(attrSubscription).subscribe(
+        (data) => {
+            // Flatten the structure: data.data is { key: [ [ts, val], ... ] }
+            var simplified = [];
+            for (var key in data.data) {
+                if (data.data.hasOwnProperty(key)) {
+                    simplified.push({ key: key, value: data.data[key][0][1] });
+                }
+            }
+            updateSettingsUI(simplified);
+            updateStateUI(simplified);
+        }
     );
 
     function updateSettingsUI(data) {
@@ -220,14 +242,14 @@ self.onInit = function() {
             { key: 'startMode', value: $('#set-mode', ctx.$container).val() },
             { key: 'useLowerLimit', value: $('#set-use-lower', ctx.$container).prop('checked') ? 'true' : 'false' }
         ];
-        ctx.attributeService.saveEntityAttributes(ctx.defaultSubscription.targetDeviceId, 'SHARED_SCOPE', newAttrs).subscribe(
+        ctx.attributeService.saveEntityAttributes(targetDeviceId, 'SHARED_SCOPE', newAttrs).subscribe(
             () => { alert('Settings Saved'); }
         );
     });
 
     btnToggle.on('click', function() {
         var newState = !isCooking;
-        ctx.attributeService.saveEntityAttributes(ctx.defaultSubscription.targetDeviceId, 'SHARED_SCOPE', [{key: 'isCooking', value: newState}]).subscribe(
+        ctx.attributeService.saveEntityAttributes(targetDeviceId, 'SHARED_SCOPE', [{key: 'isCooking', value: newState}]).subscribe(
             () => { isCooking = newState; updateBtnLabel(); }
         );
     });
@@ -239,7 +261,7 @@ self.onInit = function() {
         var end = Date.now();
         var start = end - (7 * 24 * 60 * 60 * 1000); // Last 7 days
         ctx.telemetryWebsocketService.getEntityTimeseriesValues(
-            ctx.defaultSubscription.targetDeviceId,
+            targetDeviceId,
             start, end, 100, ['cooking_history']
         ).subscribe((data) => {
             var tbody = $('#history-body', ctx.$container);
@@ -278,7 +300,9 @@ widget_json = {
                 "type": "static",
                 "sizeX": 8,
                 "sizeY": 6,
-                "resources": [],
+                "resources": [
+                    {"url": "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"}
+                ],
                 "templateHtml": html_code,
                 "templateCss": css_code,
                 "controllerScript": js_code,

@@ -2,7 +2,7 @@
   "ruleChain": {
     "name": "HACCP Monitoring",
     "firstRuleNodeId": {
-      "id": "b2c70121-364f-4d6f-b0e7-9313e4614e7d",
+      "id": "7044221d-5c2c-4ca9-b991-42f627bb564b",
       "entityType": "RULE_NODE"
     },
     "root": false,
@@ -13,7 +13,7 @@
     "nodes": [
       {
         "id": {
-          "id": "b2c70121-364f-4d6f-b0e7-9313e4614e7d",
+          "id": "7044221d-5c2c-4ca9-b991-42f627bb564b",
           "entityType": "RULE_NODE"
         },
         "type": "org.thingsboard.rule.engine.metadata.TbGetAttributesNode",
@@ -49,13 +49,13 @@
       },
       {
         "id": {
-          "id": "88f246e2-60a7-4ac4-ae5a-aeb906061f59",
+          "id": "b45ed468-3e95-4a90-a971-527ecdc444ac",
           "entityType": "RULE_NODE"
         },
         "type": "org.thingsboard.rule.engine.transform.TbTransformMsgNode",
         "name": "HACCP Logic",
         "configuration": {
-          "jsScript": "\nvar newMsg = {};\nvar newMetadata = metadata;\n\n// Log input for debug\n// return {msg: msg, metadata: metadata, msgType: msgType};\n\n// Helper to get attribute\nfunction getAttr(name, defaultVal) {\n    return metadata['cs_' + name] || metadata['ss_' + name] || defaultVal;\n}\n\nvar mode = getAttr('startMode', 'manual');\nvar target = parseFloat(getAttr('targetTemp', 100));\nvar duration = parseInt(getAttr('cookingDuration', 600)) * 1000;\nvar upper = parseFloat(getAttr('upperLimit', 110));\nvar lower = parseFloat(getAttr('lowerLimit', 90));\nvar useLower = getAttr('useLowerLimit', 'false') === 'true';\nvar isCookingAttr = getAttr('isCooking', 'false') === 'true';\n\nvar state = metadata.ss_cookingState || 'IDLE';\nvar startTime = parseInt(metadata.ss_cookingStartTime || 0);\n\nnewMetadata.should_save_attributes = 'false';\nnewMetadata.should_create_alarm = 'false';\nnewMetadata.should_save_history = 'false';\n\nif (msgType === 'POST_TELEMETRY' && msg.temperature) {\n    var temp = parseFloat(msg.temperature);\n    \n    // --- IDLE STATE ---\n    if (state === 'IDLE') {\n        var start = false;\n        if (mode === 'auto' && temp >= target) {\n            start = true;\n        }\n        // Manual start is handled via Attribute Update usually, but if isCooking is set \n        // and we are in IDLE, we should transition.\n        if (isCookingAttr) { \n           start = true; \n        }\n\n        if (start) {\n            newMetadata.ss_cookingState = 'COOKING';\n            newMetadata.ss_cookingStartTime = Date.now();\n            newMetadata.should_save_attributes = 'true';\n        }\n    } \n    \n    // --- COOKING STATE ---\n    else if (state === 'COOKING') {\n        // Check Stop (Manual)\n        if (!isCookingAttr && mode === 'manual') {\n             // User stopped it manually\n             newMetadata.ss_cookingState = 'IDLE';\n             newMetadata.should_save_attributes = 'true';\n        } else {\n            var elapsed = Date.now() - startTime;\n            \n            // 1. Check Alarms\n            if (temp > upper) {\n                newMetadata.should_create_alarm = 'true';\n                newMetadata.alarm_type = 'HACCP_HIGH_TEMP';\n            } else if (useLower && temp < lower) {\n                newMetadata.should_create_alarm = 'true';\n                newMetadata.alarm_type = 'HACCP_LOW_TEMP';\n            }\n\n            // 2. Check Completion\n            if (elapsed >= duration) {\n                newMetadata.ss_cookingState = 'IDLE';\n                newMetadata.ss_isCooking = 'false'; // Reset client flag if possible (server side override)\n                newMetadata.should_save_attributes = 'true';\n                newMetadata.should_save_history = 'true';\n                \n                newMsg.cooking_history = {\n                    start: startTime,\n                    end: Date.now(),\n                    duration: elapsed,\n                    final_temp: temp,\n                    result: 'COMPLETED'\n                };\n            }\n        }\n    }\n} else if (msgType === 'POST_ATTRIBUTES_REQUEST' || msgType === 'ATTRIBUTES_UPDATED') {\n    // Handle manual start/stop toggles from widget\n    // Note: ATTRIBUTES_UPDATED usually comes from the Widget (Shared Attributes).\n    if (msg.isCooking !== undefined) {\n         if (msg.isCooking === true && state === 'IDLE') {\n             newMetadata.ss_cookingState = 'COOKING';\n             newMetadata.ss_cookingStartTime = Date.now();\n             newMetadata.should_save_attributes = 'true';\n         } else if (msg.isCooking === false && state === 'COOKING') {\n             newMetadata.ss_cookingState = 'IDLE';\n             newMetadata.should_save_attributes = 'true';\n         }\n    }\n}\n\nreturn {msg: newMsg, metadata: newMetadata, msgType: msgType};\n"
+          "jsScript": "\nvar newMsg = {};\nvar newMetadata = metadata;\n\n// Log input for debug\n// return {msg: msg, metadata: metadata, msgType: msgType};\n\n// Helper to get attribute\nfunction getAttr(name, defaultVal) {\n    return metadata['cs_' + name] || metadata['ss_' + name] || metadata['shared_' + name] || defaultVal;\n}\n\nvar mode = getAttr('startMode', 'manual');\nvar target = parseFloat(getAttr('targetTemp', 100));\nvar duration = parseInt(getAttr('cookingDuration', 600)) * 1000;\nvar upper = parseFloat(getAttr('upperLimit', 110));\nvar lower = parseFloat(getAttr('lowerLimit', 90));\nvar useLower = getAttr('useLowerLimit', 'false') === 'true';\nvar isCookingAttr = getAttr('isCooking', 'false') === 'true';\n\nvar state = metadata.ss_cookingState || 'IDLE';\nvar startTime = parseInt(metadata.ss_cookingStartTime || 0);\n\nnewMetadata.should_save_attributes = 'false';\nnewMetadata.should_save_shared_attributes = 'false'; // Sync Shared Scope\nnewMetadata.should_create_alarm = 'false';\nnewMetadata.should_save_history = 'false';\n\nif (msgType === 'POST_TELEMETRY' && msg.temperature) {\n    var temp = parseFloat(msg.temperature);\n    \n    // --- IDLE STATE ---\n    if (state === 'IDLE') {\n        var start = false;\n        if (mode === 'auto' && temp >= target) {\n            start = true;\n        }\n        // Manual start is handled via Attribute Update usually, but if isCooking is set \n        // and we are in IDLE, we should transition.\n        if (isCookingAttr) { \n           start = true; \n        }\n\n        if (start) {\n            newMetadata.ss_cookingState = 'COOKING';\n            newMetadata.ss_cookingStartTime = Date.now();\n            newMetadata.should_save_attributes = 'true';\n            // Save to DB via Msg Payload\n            newMsg.cookingState = 'COOKING';\n            newMsg.cookingStartTime = newMetadata.ss_cookingStartTime;\n        }\n    } \n    \n    // --- COOKING STATE ---\n    else if (state === 'COOKING') {\n        // Check Stop (Manual)\n        if (!isCookingAttr && mode === 'manual') {\n             // User stopped it manually\n             newMetadata.ss_cookingState = 'IDLE';\n             newMetadata.should_save_attributes = 'true';\n             newMsg.cookingState = 'IDLE';\n        } else {\n            var elapsed = Date.now() - startTime;\n            \n            // 1. Check Alarms\n            if (temp > upper) {\n                newMetadata.should_create_alarm = 'true';\n                newMetadata.alarm_type = 'HACCP_HIGH_TEMP';\n                newMsg.activeAlarms = 'HACCP_HIGH_TEMP';\n                newMetadata.should_save_attributes = 'true'; // Save active alarm status\n            } else if (useLower && temp < lower) {\n                newMetadata.should_create_alarm = 'true';\n                newMetadata.alarm_type = 'HACCP_LOW_TEMP';\n                newMsg.activeAlarms = 'HACCP_LOW_TEMP';\n                newMetadata.should_save_attributes = 'true';\n            }\n\n            // 2. Check Completion\n            if (elapsed >= duration) {\n                newMetadata.ss_cookingState = 'IDLE';\n                newMetadata.should_save_attributes = 'true';\n                newMetadata.should_save_shared_attributes = 'true'; // Reset Shared Attr\n                newMetadata.should_save_history = 'true';\n                \n                newMsg.cookingState = 'IDLE';\n                newMsg.isCooking = false; // This will go to both Server & Shared\n                newMsg.activeAlarms = ''; // Clear alarms\n\n                // Must stringify to store as a single value string in Timeseries\n                newMsg.cooking_history = JSON.stringify({\n                    start: startTime,\n                    end: Date.now(),\n                    duration: elapsed,\n                    final_temp: temp,\n                    result: 'COMPLETED'\n                });\n            }\n        }\n    }\n} else if (msgType === 'POST_ATTRIBUTES_REQUEST' || msgType === 'ATTRIBUTES_UPDATED') {\n    // Handle manual start/stop toggles from widget\n    // Note: ATTRIBUTES_UPDATED usually comes from the Widget (Shared Attributes).\n    if (msg.isCooking !== undefined) {\n         if (msg.isCooking === true && state === 'IDLE') {\n             newMetadata.ss_cookingState = 'COOKING';\n             newMetadata.ss_cookingStartTime = Date.now();\n             newMetadata.should_save_attributes = 'true';\n             newMsg.cookingState = 'COOKING';\n             newMsg.cookingStartTime = newMetadata.ss_cookingStartTime;\n         } else if (msg.isCooking === false && state === 'COOKING') {\n             newMetadata.ss_cookingState = 'IDLE';\n             newMetadata.should_save_attributes = 'true';\n             newMsg.cookingState = 'IDLE';\n         }\n    }\n}\n\nreturn {msg: newMsg, metadata: newMetadata, msgType: msgType};\n"
         },
         "additionalInfo": {
           "layoutX": 500,
@@ -64,13 +64,13 @@
       },
       {
         "id": {
-          "id": "e4e08a33-47f8-423a-8de7-0375fc7cda4e",
+          "id": "aa114ccb-18e5-415b-805b-9e118376273e",
           "entityType": "RULE_NODE"
         },
         "type": "org.thingsboard.rule.engine.filter.TbJsSwitchNode",
         "name": "Route Actions",
         "configuration": {
-          "jsScript": "\n                        var routes = [];\n                        if (metadata.should_save_attributes === 'true') routes.push('SAVE_ATTR');\n                        if (metadata.should_create_alarm === 'true') routes.push('ALARM');\n                        if (metadata.should_save_history === 'true') routes.push('HISTORY');\n                        return routes;\n                    "
+          "jsScript": "\n                        var routes = [];\n                        if (metadata.should_save_attributes === 'true') routes.push('SAVE_ATTR');\n                        if (metadata.should_save_shared_attributes === 'true') routes.push('SAVE_SHARED');\n                        if (metadata.should_create_alarm === 'true') routes.push('ALARM');\n                        if (metadata.should_save_history === 'true') routes.push('HISTORY');\n                        return routes;\n                    "
         },
         "additionalInfo": {
           "layoutX": 750,
@@ -79,11 +79,11 @@
       },
       {
         "id": {
-          "id": "245e5a39-4efc-454f-93f0-73359111e5ec",
+          "id": "1ced9015-3a50-4c0e-8403-0316b364c917",
           "entityType": "RULE_NODE"
         },
         "type": "org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode",
-        "name": "Update State",
+        "name": "Update Server State",
         "configuration": {
           "scope": "SERVER_SCOPE"
         },
@@ -94,7 +94,22 @@
       },
       {
         "id": {
-          "id": "a818fca5-d6a2-4d90-8f29-ef771b7ea926",
+          "id": "b1e72081-ec8f-4919-bf4f-27f98aebb5de",
+          "entityType": "RULE_NODE"
+        },
+        "type": "org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode",
+        "name": "Update Shared State",
+        "configuration": {
+          "scope": "SHARED_SCOPE"
+        },
+        "additionalInfo": {
+          "layoutX": 1000,
+          "layoutY": 100
+        }
+      },
+      {
+        "id": {
+          "id": "a7cecb91-5424-48e2-a2a6-1614b513699e",
           "entityType": "RULE_NODE"
         },
         "type": "org.thingsboard.rule.engine.action.TbCreateAlarmNode",
@@ -112,7 +127,7 @@
       },
       {
         "id": {
-          "id": "8cf2cf13-995f-4e8e-be1c-491518910144",
+          "id": "5c0aa609-1717-4cca-b106-c0ceeeb43d60",
           "entityType": "RULE_NODE"
         },
         "type": "org.thingsboard.rule.engine.telemetry.TbMsgTimeseriesNode",
@@ -145,11 +160,16 @@
       {
         "fromIndex": 2,
         "toIndex": 4,
-        "type": "ALARM"
+        "type": "SAVE_SHARED"
       },
       {
         "fromIndex": 2,
         "toIndex": 5,
+        "type": "ALARM"
+      },
+      {
+        "fromIndex": 2,
+        "toIndex": 6,
         "type": "HISTORY"
       }
     ]
